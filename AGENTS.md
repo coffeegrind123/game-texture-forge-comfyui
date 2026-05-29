@@ -10,8 +10,10 @@ This file is the complete contract. The machine-readable schema is at
 BASE = http://<host>:8080        # default when running via docker compose
 ```
 Discover what's installed first: `GET {BASE}/capabilities` returns the available
-checkpoints, controlnets, upscale models, samplers, schedulers, and whether CHORD
-(PBR) is available. `GET {BASE}/health` reports gateway + ComfyUI reachability.
+checkpoints, controlnets, upscale models, samplers, schedulers, control_types, ipadapter
+and clip_vision models, and feature flags: `chord_available`, `stablematerials_available`,
+`ipadapter_available`, `florence2_available`, `flux_kontext_available`.
+`GET {BASE}/health` reports gateway + ComfyUI reachability.
 
 ## The contract: every operation is ASYNC
 
@@ -39,26 +41,80 @@ Pick ONE:
 
 ## Operations
 
-### POST /restyle — existing texture → realistic variant, tiling preserved/created
+### POST /restyle — existing texture → restyled variant, tiling preserved/created
 Output label: `result` (PNG; 4× the working size when `upscale=true`).
+
+The defaults are tuned to produce a **recognisably different** texture (not a near-copy):
+content-aware captioning + a higher denoise + a ControlNet that releases mid-sampling.
+To actually change the look, set **`style`** (e.g. `"(covered in green moss:1.3), damp"`).
+
+**Prompt / steering**
 
 | param | type | default | notes |
 |---|---|---|---|
-| prompt | string | photoreal default | what to push the texture toward |
-| negative_prompt | string | default | |
-| denoise | float 0–1 | 0.45 | lower = closer to source, higher = more new detail |
-| steps | int | 28 | |
-| cfg | float | 6.5 | |
-| sampler_name | string | dpmpp_2m | must be in `/capabilities.samplers` |
-| scheduler | string | karras | must be in `/capabilities.schedulers` |
+| style | string | "" | **the transformation** — appended to the prompt; ComfyUI `(phrase:weight)` honoured. This is what makes the output different. |
+| auto_caption | bool | true | caption the input so the prompt describes what it IS, then append `style` + `quality_suffix`. Turn off to use `prompt` verbatim. |
+| caption_task | string | more_detailed_caption | or `prompt_gen_mixed_caption` (PromptGen: tags+desc) |
+| prompt | string | photoreal default | base/content prompt used only when `auto_caption=false` |
+| quality_suffix | string | tiling/PBR tags | appended last |
+| negative_prompt | string | shadow/perspective-aware default | |
+
+**Diffusion**
+
+| param | type | default | notes |
+|---|---|---|---|
+| method | enum | img2img | `img2img` or `unsample` (invert→resample; tighter layout lock, bigger look change) |
+| denoise | float 0–1 | 0.6 | 0.55–0.70 = restyle band; <0.45 only refines (img2img only) |
+| steps / cfg | int / float | 28 / 6.5 | |
+| sampler_name / scheduler | string | dpmpp_2m / karras | must be in `/capabilities` |
 | seed | int | -1 | -1 = random |
 | tiling | enum | enable | `enable`/`x_only`/`y_only`/`disable` |
-| use_controlnet | bool | true | Tile-ControlNet structure lock |
-| controlnet_strength | float 0–2 | 0.6 | |
-| upscale | bool | true | tiling-aware model upscale |
-| upscale_pad | int | 64 | circular pad for seamless upscale |
+
+**Structure control (ControlNet)**
+
+| param | type | default | notes |
+|---|---|---|---|
+| use_controlnet | bool | true | structure lock |
+| control_type | enum | tile | `tile`/`depth`/`canny`/`lineart`/`scribble`. `depth`/`canny` restyle far more than `tile`. |
+| controlnet_strength | float 0–2 | 0.4 | lower = more restyle freedom |
+| controlnet_start_percent | float 0–1 | 0.0 | |
+| controlnet_end_percent | float 0–1 | 0.5 | **release point** — <1.0 lets the back half repaint material. Key restyle lever. |
+| controlnet_union | bool | false | set true when `controlnet` is the xinsir Union model |
+| controlnet | string | tile sdxl | use `controlnet-union-sdxl-1.0.safetensors` + `controlnet_union:true` to switch types |
+
+**IP-Adapter (style injection)**
+
+| param | type | default | notes |
+|---|---|---|---|
+| ip_adapter | bool | false | inject a reference look (style transfer) while ControlNet holds layout |
+| ip_adapter_weight | float | 0.8 | |
+| ip_adapter_weight_type | string | style transfer | e.g. `style transfer`, `style transfer precise` |
+| ip_adapter_image_base64 / ip_adapter_image_url | string | null | optional separate style reference; omit = self-variation from the input |
+
+**Output / models**
+
+| param | type | default | notes |
+|---|---|---|---|
+| upscale / upscale_pad | bool / int | true / 64 | tiling-aware model upscale |
 | input_size | int or null | 1024 | resize longest side (aspect kept); null = as-is |
-| checkpoint / controlnet / upscale_model | string | SDXL defaults | must exist in `/capabilities` |
+| checkpoint | string | Juggernaut-XL_v9 | must exist in `/capabilities` |
+| controlnet / upscale_model / caption_model | string | defaults | must exist |
+
+### POST /restyle-flux — instruction-based restyle via FLUX.1 Kontext
+**NOT seamlessly tileable** (DiT model — the circular-padding trick doesn't apply). Use for
+one-off restyles where seamlessness isn't required. Requires the FLUX models (download with
+`TEXFORGE_FLUX=1`); check `/capabilities.flux_kontext_available`. Output label: `result`.
+
+| param | type | default | notes |
+|---|---|---|---|
+| prompt | string | (required) | edit instruction, e.g. "make this brick wall mossy, keep the layout" |
+| guidance | float | 2.5 | FluxGuidance |
+| steps | int | 20 | |
+| sampler_name / scheduler | string | euler / simple | |
+| width / height | int | 1024 | output canvas |
+| seed | int | -1 | |
+| input_size | int or null | 1024 | resize longest side before encoding |
+| unet_name / clip_name1 / clip_name2 / vae_name | string | FLUX Kontext defaults | must exist |
 
 ### POST /make-seamless — make a non-tiling image tile (no diffusion, fast)
 Output label: `result`.
@@ -72,14 +128,19 @@ Output label: `result`.
 | blend_curve | string | cubic | cosine/linear/smoothstep/smootherstep/quadratic/cubic |
 | orientation | string | both | halfshift only: both/horizontal/vertical |
 
-### POST /pbr — PBR material maps via CHORD
-Outputs labels: `basecolor`, `normal`, `roughness`, `metalness` (4 PNGs).
+### POST /pbr — PBR material maps
+Two backends. **chord** (default): labels `basecolor`, `normal`, `roughness`, `metalness` (4 PNGs).
+**stablematerials** (gvecchio StableMaterials/MatForger): adds a `height` map → labels
+`basecolor`, `normal`, `height`, `roughness`, `metalness` (5 PNGs); auto-downloads on first use.
 
 | param | type | default | notes |
 |---|---|---|---|
-| backend | enum | chord | only `chord` currently |
-| chord_model | string | chord_v1.safetensors | must exist; check `/capabilities.chord_available` |
-| input_size | int or null | 1024 | CHORD works best at 1024 |
+| backend | enum | chord | `chord` or `stablematerials` (check `/capabilities.chord_available` / `.stablematerials_available`) |
+| chord_model | string | chord_v1.safetensors | chord backend; must exist |
+| input_size | int or null | 1024 | chord works best at 1024; stablematerials native 512 |
+| sm_repo | string | gvecchio/StableMaterials | stablematerials backend repo id (MatForger also works) |
+| material_prompt | string | "" | stablematerials: empty = condition on the input image |
+| steps / cfg / tileable | int / float / bool | 25 / 6.0 / true | stablematerials only |
 
 ## Worked example (curl)
 
@@ -87,8 +148,9 @@ Outputs labels: `basecolor`, `normal`, `roughness`, `metalness` (4 PNGs).
 BASE=http://localhost:8080
 B64=$(base64 -w0 my_texture.png)
 
+# `style` is what makes the output DIFFERENT from the input (the rest is auto-captioned).
 JOB=$(curl -s $BASE/restyle -H 'Content-Type: application/json' \
-  -d "{\"image_base64\":\"$B64\",\"denoise\":0.45,\"tiling\":\"enable\",\"upscale\":true}" \
+  -d "{\"image_base64\":\"$B64\",\"style\":\"(covered in green moss:1.3), damp weathered stone\",\"denoise\":0.6,\"tiling\":\"enable\",\"upscale\":true}" \
   | jq -r .job_id)
 
 # poll until done

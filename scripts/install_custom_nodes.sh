@@ -25,6 +25,12 @@ REPOS=(
   "https://github.com/kijai/ComfyUI-Marigold.git"
   # Ubisoft CHORD: single-image -> full PBR (BaseColor/Normal/Height/Rough/Metal).
   "https://github.com/ubisoft/ComfyUI-Chord.git"
+  # Florence-2 captioning -> content-aware restyle prompts (PromptGen models).
+  "https://github.com/kijai/ComfyUI-Florence2.git"
+  # IP-Adapter: inject a style reference while a ControlNet holds layout.
+  "https://github.com/cubiq/ComfyUI_IPAdapter_plus.git"
+  # Unsampling / noise injection: invert a source to its own noise for tight restyle.
+  "https://github.com/BlenderNeko/ComfyUI_Noise.git"
 )
 
 for url in "${REPOS[@]}"; do
@@ -46,6 +52,15 @@ for url in "${REPOS[@]}"; do
       || echo "[WARN] requirements failed for $name — node may be partially functional"
   fi
 done
+
+# Extra Python deps for the texture-forge local nodes + captioning:
+#   diffusers/accelerate  -> StableMaterials/MatForger PBR pipeline (MatForgerMaterialEstimation)
+#   timm/einops/peft      -> Florence-2 model + LoRA support
+# PIP_CONSTRAINT keeps transformers<5 (CHORD compatibility) regardless.
+echo "[pip] installing shared deps for texture-forge + captioning"
+python -m pip install \
+    "diffusers>=0.27" accelerate "timm>=0.9" einops peft \
+  || echo "[WARN] shared deps install failed — some nodes may be partially functional"
 
 echo "Custom node installation complete."
 ls -1 "${COMFYUI_HOME}/custom_nodes"

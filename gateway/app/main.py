@@ -22,8 +22,8 @@ from PIL import Image
 
 from .comfy import ComfyClient, PromptError
 from . import prompts
-from .models import (RestyleParams, SeamlessParams, PBRParams, SeamlessMethod,
-                     JobResponse, JobStatus, OutputItem, Capabilities)
+from .models import (RestyleParams, SeamlessParams, PBRParams, FluxKontextParams,
+                     SeamlessMethod, ControlType, JobResponse, JobStatus, OutputItem, Capabilities)
 
 COMFY_URL = os.environ.get("COMFY_URL", "http://comfyui:8188")
 
@@ -201,6 +201,18 @@ def _compute_scaled(data: bytes, input_size: Optional[int]):
     return None if (nw, nh) == (w, h) else (nw, nh)
 
 
+async def _fetch_optional_image(b64: Optional[str], url: Optional[str]) -> Optional[bytes]:
+    """Resolve a secondary image (e.g. IP-Adapter style reference) from base64/url."""
+    if b64:
+        return base64.b64decode(b64.split(",", 1)[-1])
+    if url:
+        async with httpx.AsyncClient(timeout=60) as c:
+            r = await c.get(url)
+            r.raise_for_status()
+            return r.content
+    return None
+
+
 async def _start(operation: str, build, params, data, fname) -> dict:
     comfy: ComfyClient = app.state.comfy
     job_id = uuid.uuid4().hex[:12]
@@ -211,6 +223,16 @@ async def _start(operation: str, build, params, data, fname) -> dict:
 
     if operation == "make-seamless":
         prompt, labels = build(name, params, prefix)
+    elif operation == "restyle":
+        scaled = _compute_scaled(data, getattr(params, "input_size", None))
+        ip_name = None
+        if getattr(params, "ip_adapter", False):
+            ip_bytes = await _fetch_optional_image(
+                getattr(params, "ip_adapter_image_base64", None),
+                getattr(params, "ip_adapter_image_url", None))
+            if ip_bytes is not None:
+                ip_name = await comfy.upload_image(ip_bytes, f"gw_{job_id}_ip.png")
+        prompt, labels = build(name, params, prefix, scaled, ip_name)
     else:
         scaled = _compute_scaled(data, getattr(params, "input_size", None))
         prompt, labels = build(name, params, prefix, scaled)
@@ -263,6 +285,9 @@ async def capabilities():
     oi = _oi_cache["data"]
     co = comfy.combo_options
     chord = "chord_v1.safetensors" in co(oi, "ChordLoadModel", "ckpt_name")
+    unets = co(oi, "UNETLoader", "unet_name")
+    flux_kontext = ("FluxKontextImageScale" in oi and "ReferenceLatent" in oi
+                    and any("kontext" in str(n).lower() for n in unets))
     return Capabilities(
         comfyui_reachable=True,
         checkpoints=co(oi, "CheckpointLoaderSimple", "ckpt_name"),
@@ -272,8 +297,15 @@ async def capabilities():
         samplers=co(oi, "KSampler", "sampler_name"),
         schedulers=co(oi, "KSampler", "scheduler"),
         chord_available=chord,
+        stablematerials_available="MatForgerMaterialEstimation" in oi,
+        ipadapter_available="IPAdapterAdvanced" in oi,
+        florence2_available="Florence2Run" in oi,
+        flux_kontext_available=flux_kontext,
+        ipadapter_models=co(oi, "IPAdapterModelLoader", "ipadapter_file"),
+        clip_vision_models=co(oi, "CLIPVisionLoader", "clip_name"),
+        control_types=[c.value for c in ControlType],
         seamless_methods=[m.value for m in SeamlessMethod],
-        operations=["restyle", "make-seamless", "pbr"],
+        operations=["restyle", "restyle-flux", "make-seamless", "pbr"],
     )
 
 
@@ -282,6 +314,13 @@ async def capabilities():
 async def restyle(request: Request):
     params, data, fname = await _read_request(request, RestyleParams)
     return _job_response(await _start("restyle", prompts.build_restyle, params, data, fname))
+
+
+@app.post("/restyle-flux", response_model=JobResponse,
+          summary="Instruction-based restyle via FLUX.1 Kontext (NOT seamlessly tileable)")
+async def restyle_flux(request: Request):
+    params, data, fname = await _read_request(request, FluxKontextParams)
+    return _job_response(await _start("restyle-flux", prompts.build_restyle_flux, params, data, fname))
 
 
 @app.post("/make-seamless", response_model=JobResponse,

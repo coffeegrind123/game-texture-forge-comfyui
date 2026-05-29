@@ -13,7 +13,10 @@ Single source of truth for this repo. A local **ComfyUI** texture pipeline plus 
 - **ComfyUI** (`comfyui-texture:latest`, CUDA) with a baked texture node stack:
   seamless-tiling (spinagon), MakeSeamlessTexture, AdvancedTiling, TextureAlchemy,
   comfyui_controlnet_aux, Marigold, **Ubisoft CHORD** (gated), ComfyUI-Manager,
-  and a custom **`TilingAwareUpscale`** node (`custom_nodes/comfyui-tiling-upscale/`).
+  **ComfyUI-Florence2** (caption→prompt), **ComfyUI_IPAdapter_plus** (style transfer),
+  **ComfyUI_Noise** (unsampling), and custom nodes in `custom_nodes/`:
+  `comfyui-tiling-upscale` (`TilingAwareUpscale`) and `comfyui-texture-forge-nodes`
+  (`TextureForgePromptCompose`, `MatForgerMaterialEstimation`).
 - **Gateway** (`comfyui-gateway:latest`, FastAPI) on host port **8080** fronting
   ComfyUI (`:8188`) with `/restyle`, `/make-seamless`, `/pbr`, async jobs, OpenAPI.
 - Two compose services: `comfyui` (GPU) and `gateway`. `make` targets wrap everything.
@@ -84,8 +87,28 @@ evict SDXL, so back-to-back restyles may each reload. Keep ComfyUI warm for fast
   `TilingAwareUpscale` circular-pads → upscales → crops, dropping the seam ratio to ~0.96.
 - **PBR:** CHORD `ChordMaterialEstimation` (single image → 4 maps). The minimal
   image-to-material graph needs only `ChordLoadModel + ChordMaterialEstimation` — no base model.
+  Alternative backend: `MatForgerMaterialEstimation` (StableMaterials/MatForger, 5 maps incl. height).
 - Workflows live in `workflows/`; regenerate with `scripts/gen_workflow.py <object_info.json>`
   (validates every link against the live schema).
+
+### Restyle: "different but similar" (don't ship a near-copy)
+The old defaults (denoise 0.45 + Tile-ControlNet full range + a content-free prompt) made the
+restyle a *detail-preserving upscaler* — it just rebuilt the input. The fix, now the default:
+- **Content-aware prompt:** `auto_caption=true` runs Florence-2 PromptGen on the input, then
+  `TextureForgePromptCompose` joins `caption + style + quality_suffix` into the positive prompt.
+  The caller's **`style`** (e.g. `"(covered in moss:1.3)"`) is what diverges the output. A prompt
+  with no material/target gives img2img nothing to move toward, so it reconstructs the source.
+- **denoise 0.6** (restyle band 0.55–0.70), **controlnet_strength 0.4**, and
+  **`controlnet_end_percent 0.5`** (release the control mid-sampling so the back half repaints).
+  These three together were the whole "same texture" bug.
+- **control_type** chooses the structural signal: `tile` preserves colour too (least change);
+  `depth`/`canny`/`lineart`/`scribble` lock geometry only (more restyle). Use the xinsir Union
+  model + `controlnet_union=true` to switch types without a new download.
+- **IP-Adapter** (`ip_adapter=true`, `weight_type="style transfer"`) injects a reference look;
+  **`method="unsample"`** (ComfyUI_Noise) inverts the source to its own noise for a tighter
+  layout lock with a bigger appearance change than plain img2img.
+- **/restyle-flux** (FLUX.1 Kontext) is instruction-based editing but **NOT tileable** (DiT —
+  circular padding doesn't apply); separate endpoint, download with `TEXFORGE_FLUX=1`.
 
 ## 5. The gateway
 
