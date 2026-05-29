@@ -1,0 +1,53 @@
+services:
+  comfyui:
+    build:
+      context: .
+      args:
+        CUDA_VERSION: "12.4.1"
+        TORCH_INDEX: "cu124"
+        COMFYUI_REF: "master"
+    image: comfyui-texture:latest
+    container_name: comfyui
+    ports:
+      - "8188:8188"
+    volumes:
+      # Data dir (models / input / output / user), bind-mounted. The Docker daemon
+      # resolves this path on the HOST. Default ./data works when the daemon shares
+      # this filesystem. If the daemon runs on a Windows host (Docker Desktop / WSL),
+      # set TEXFORGE_DATA in a local .env to the host path — see .env.example.
+      - "${TEXFORGE_DATA:-./data}/models:/data/models"
+      - "${TEXFORGE_DATA:-./data}/input:/opt/ComfyUI/input"
+      - "${TEXFORGE_DATA:-./data}/output:/opt/ComfyUI/output"
+      - "${TEXFORGE_DATA:-./data}/user:/opt/ComfyUI/user"
+      # Persist user-installed nodes; baked nodes are re-seeded on start.
+      - comfyui_custom_nodes:/opt/ComfyUI/custom_nodes
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    # GPU passthrough (equivalent to `docker run --gpus all`).
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+    # Override sampler/launch flags here if desired, e.g.:
+    # command: ["--listen", "0.0.0.0", "--port", "8188", "--highvram"]
+
+  gateway:
+    build:
+      context: ./gateway
+    image: comfyui-gateway:latest
+    container_name: comfyui-gateway
+    ports:
+      - "8080:8000"          # high-level REST API -> http://localhost:8080/docs
+    environment:
+      - COMFY_URL=http://comfyui:8188
+    depends_on:
+      - comfyui
+    restart: unless-stopped
+
+volumes:
+  comfyui_custom_nodes:

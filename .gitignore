@@ -1,0 +1,13 @@
+# Data: models (multi-GB), inputs, outputs, ComfyUI user db/logs/manager cache — never commit
+data/
+out/
+
+# Local environment (machine-specific host paths, possible tokens)
+.env
+
+# Python
+__pycache__/
+*.pyc
+
+# Logs / scratch
+*.log

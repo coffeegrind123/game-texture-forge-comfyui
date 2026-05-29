@@ -1,0 +1,16 @@
+# Maps ComfyUI's model categories onto the mounted /data/models volume so the
+# (large) model files live on the host and are never baked into the image.
+comfyui_data:
+  base_path: /data/models
+  checkpoints: checkpoints
+  vae: vae
+  loras: loras
+  controlnet: controlnet
+  upscale_models: upscale_models
+  clip: clip
+  clip_vision: clip_vision
+  unet: unet
+  diffusion_models: diffusion_models
+  embeddings: embeddings
+  style_models: style_models
+  ipadapter: ipadapter
