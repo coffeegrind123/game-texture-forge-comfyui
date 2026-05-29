@@ -203,8 +203,10 @@ def _compute_scaled(data: bytes, input_size: Optional[int]):
 
 async def _start(operation: str, build, params, data, fname) -> dict:
     comfy: ComfyClient = app.state.comfy
-    name = await comfy.upload_image(data, fname or "input.png")
     job_id = uuid.uuid4().hex[:12]
+    # Unique per-job input filename so overlapping requests can't clobber each other's
+    # upload (a fixed name + overwrite would make two jobs read the same image).
+    name = await comfy.upload_image(data, f"gw_{job_id}.png")
     prefix = f"api/{job_id}"
 
     if operation == "make-seamless":
