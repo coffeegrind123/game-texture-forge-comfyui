@@ -75,12 +75,19 @@ class RestyleParams(ImageRef):
         "blurry, low detail, worst quality, lowres, jpeg artifacts, watermark, signature, "
         "text, visible seam")
 
+    # --- divergence (one-knob) --------------------------------------------- #
+    variation: Optional[float] = Field(
+        0.8, ge=0.0, le=1.0,
+        description="One-knob divergence. 0 = subtle realism (keep the texture); "
+                    "1 = a brand-NEW texture that only loosely references the original. When set "
+                    "(default 0.8) it OVERRIDES denoise + controlnet_strength + controlnet_end_percent; "
+                    "auto_caption keeps the same material family (a brick wall stays a brick wall). "
+                    "Set null to drive denoise/controlnet manually instead.")
+
     # --- diffusion --------------------------------------------------------- #
     method: RestyleMethod = Field(RestyleMethod.img2img, description="img2img or unsample.")
     denoise: float = Field(0.45, ge=0.0, le=1.0,
-                           description="Lower = closer to source; higher = more new detail. "
-                                       "~0.45 = subtle realism/colour-grade (stays close to source); "
-                                       "0.55-0.70 = stronger restyle.")
+                           description="Used only when variation is null. Lower = closer to source.")
     steps: int = Field(28, ge=1, le=150)
     cfg: float = Field(6.5, ge=1.0, le=30.0)
     sampler_name: str = "dpmpp_2m"

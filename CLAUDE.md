@@ -98,9 +98,12 @@ restyle a *detail-preserving upscaler* — it just rebuilt the input. The fix, n
   `TextureForgePromptCompose` joins `caption + style + quality_suffix` into the positive prompt.
   The caller's **`style`** (e.g. `"(covered in moss:1.3)"`) is what diverges the output. A prompt
   with no material/target gives img2img nothing to move toward, so it reconstructs the source.
-- **denoise 0.45** (default = subtle realism/colour-grade that stays close to source; raise to
-  0.55–0.70 for a stronger restyle), **controlnet_strength 0.4**, and **`controlnet_end_percent 0.5`**
-  (release the control mid-sampling so the back half can repaint / regrade colour).
+- **`variation` is the primary divergence knob (default 0.8):** the goal is a NEW texture that only
+  shallowly references the original (same material family via the caption, new everything else). It maps
+  0→1 onto denoise (0.45→0.92) + controlnet_strength (0.50→0.12) + controlnet_end_percent (0.60→0.20),
+  overriding those three. Lower it for a subtle restyle; null it to drive denoise/controlnet manually.
+  Verified: variation 0.8 on a flat-blue tile texture → a genuinely new tiled surface, mean Δ 69/channel
+  (vs ~15 for the old subtle default) while still reading as the same material kind.
 - **Default steering is subtle realism + neutral colour:** `quality_suffix` pushes
   `(realistic natural color palette:1.2), (muted neutral tones:1.1), photorealistic, PBR` and the
   negative pushes away from oversaturation / blue cast / stylisation — so strong colours drift

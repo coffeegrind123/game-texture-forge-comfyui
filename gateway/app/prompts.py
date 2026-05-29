@@ -50,7 +50,21 @@ def _preprocessor(ct: ControlType, image_src, res: int) -> dict:
             "inputs": {"image": image_src, "pyrUp_iters": 3, "resolution": res}}
 
 
+def _effective_diffusion(p: RestyleParams):
+    """Resolve the divergence knobs. `variation` (when set) is a single 0..1 dial that maps to
+    denoise + controlnet strength/end — high variation = a new texture, structure barely held, so
+    the caption (material family) is what carries identity. Otherwise use the explicit params."""
+    if p.variation is None:
+        return p.denoise, p.controlnet_strength, p.controlnet_end_percent
+    v = max(0.0, min(1.0, p.variation))
+    denoise = 0.45 + v * 0.47          # 0.45 (subtle) .. 0.92 (mostly new)
+    cn_strength = 0.50 - v * 0.38      # 0.50 (locked) .. 0.12 (faint echo)
+    cn_end = 0.60 - v * 0.40           # 0.60 .. 0.20 (release control early)
+    return denoise, cn_strength, cn_end
+
+
 def build_restyle(image_name: str, p: RestyleParams, prefix: str, scaled_wh=None, ip_image_name=None):
+    eff_denoise, eff_cn_strength, eff_cn_end = _effective_diffusion(p)
     g = {
         "1": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": p.checkpoint}},
         "2": {"class_type": "SeamlessTile", "inputs": {"model": ["1", 0], "tiling": p.tiling.value, "copy_model": "Make a copy"}},
@@ -103,7 +117,7 @@ def build_restyle(image_name: str, p: RestyleParams, prefix: str, scaled_wh=None
     g["7"] = {"class_type": "CLIPTextEncode", "inputs": {"clip": ["1", 1], "text": p.negative_prompt}}
 
     pos, neg = ["6", 0], ["7", 0]
-    if p.use_controlnet and p.controlnet_strength > 0:
+    if p.use_controlnet and eff_cn_strength > 0:
         g["8"] = {"class_type": "ControlNetLoader", "inputs": {"control_net_name": p.controlnet}}
         cn_ref = ["8", 0]
         if p.controlnet_union:
@@ -113,9 +127,9 @@ def build_restyle(image_name: str, p: RestyleParams, prefix: str, scaled_wh=None
         g["9"] = _preprocessor(p.control_type, img_src, res)
         g["10"] = {"class_type": "ControlNetApplyAdvanced",
                    "inputs": {"positive": pos, "negative": neg, "control_net": cn_ref,
-                              "image": ["9", 0], "strength": p.controlnet_strength,
+                              "image": ["9", 0], "strength": eff_cn_strength,
                               "start_percent": p.controlnet_start_percent,
-                              "end_percent": p.controlnet_end_percent}}
+                              "end_percent": eff_cn_end}}
         pos, neg = ["10", 0], ["10", 1]
 
     # --- sampler: img2img (add noise) or unsample (invert then resample) ---
@@ -135,7 +149,7 @@ def build_restyle(image_name: str, p: RestyleParams, prefix: str, scaled_wh=None
         g["11"] = {"class_type": "KSampler",
                    "inputs": {"model": model_ref, "seed": _seed(p.seed), "steps": p.steps, "cfg": p.cfg,
                               "sampler_name": p.sampler_name, "scheduler": p.scheduler,
-                              "positive": pos, "negative": neg, "latent_image": ["5", 0], "denoise": p.denoise}}
+                              "positive": pos, "negative": neg, "latent_image": ["5", 0], "denoise": eff_denoise}}
     g["12"] = {"class_type": "VAEDecode", "inputs": {"samples": ["11", 0], "vae": ["3", 0]}}
 
     final = ["12", 0]

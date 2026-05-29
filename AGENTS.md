@@ -44,17 +44,23 @@ Pick ONE:
 ### POST /restyle — existing texture → restyled variant, tiling preserved/created
 Output label: `result` (PNG; 4× the working size when `upscale=true`).
 
-The defaults are tuned for a **subtle realism + neutral colour-grade** restyle: the output
-stays clearly the same texture but is nudged toward realistic, physically-based materials and
-a muted/neutral palette (e.g. strong blues drift toward neutral). For a bigger transformation,
-set **`style`** (e.g. `"(covered in green moss:1.3), damp"`) and/or raise `denoise` to 0.55-0.7.
+By default `/restyle` generates a **NEW texture that only loosely references the original** — same
+material family (a brick wall stays a brick wall, via the auto-caption) but new layout/detail/colour.
+The single knob for this is **`variation`** (default 0.8). Lower it toward 0 for a subtle restyle
+that keeps the original; raise toward 1 for maximum divergence.
+
+**Divergence**
+
+| param | type | default | notes |
+|---|---|---|---|
+| variation | float 0–1 or null | 0.8 | **the main "make it different" knob.** 0 = keep the texture (subtle), 1 = brand-new. When set it OVERRIDES `denoise` + `controlnet_strength` + `controlnet_end_percent`. Set `null` to drive those three manually. |
 
 **Prompt / steering**
 
 | param | type | default | notes |
 |---|---|---|---|
-| quality_suffix | string | realism + neutral-colour grade | always appended; the default subtle-realism/colour steering lives here |
-| style | string | "" | optional extra transformation appended to the prompt; ComfyUI `(phrase:weight)` honoured. Leave empty for the default subtle restyle. |
+| style | string | "" | free-text steer appended to the auto-caption, e.g. `"rusty"`, `"mossy weathered"`, `"sci-fi panel"`. Pushes the new texture in a direction. ComfyUI `(phrase:weight)` honoured. |
+| quality_suffix | string | realism + neutral-colour grade | always appended |
 | auto_caption | bool | true | caption the input so the prompt describes what it IS, then append `style` + `quality_suffix`. Turn off to use `prompt` verbatim. |
 | caption_task | string | more_detailed_caption | or `prompt_gen_mixed_caption` (PromptGen: tags+desc) |
 | prompt | string | realism/neutral default | base/content prompt used only when `auto_caption=false` |
@@ -65,7 +71,7 @@ set **`style`** (e.g. `"(covered in green moss:1.3), damp"`) and/or raise `denoi
 | param | type | default | notes |
 |---|---|---|---|
 | method | enum | img2img | `img2img` or `unsample` (invert→resample; tighter layout lock, bigger look change) |
-| denoise | float 0–1 | 0.45 | ~0.45 = subtle realism/colour grade (stays close to source); 0.55–0.70 = stronger restyle (img2img only) |
+| denoise | float 0–1 | 0.45 | used only when `variation` is null; otherwise `variation` sets it (img2img only) |
 | steps / cfg | int / float | 28 / 6.5 | |
 | sampler_name / scheduler | string | dpmpp_2m / karras | must be in `/capabilities` |
 | seed | int | -1 | -1 = random |
