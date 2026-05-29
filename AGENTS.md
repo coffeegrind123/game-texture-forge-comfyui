@@ -44,27 +44,28 @@ Pick ONE:
 ### POST /restyle — existing texture → restyled variant, tiling preserved/created
 Output label: `result` (PNG; 4× the working size when `upscale=true`).
 
-The defaults are tuned to produce a **recognisably different** texture (not a near-copy):
-content-aware captioning + a higher denoise + a ControlNet that releases mid-sampling.
-To actually change the look, set **`style`** (e.g. `"(covered in green moss:1.3), damp"`).
+The defaults are tuned for a **subtle realism + neutral colour-grade** restyle: the output
+stays clearly the same texture but is nudged toward realistic, physically-based materials and
+a muted/neutral palette (e.g. strong blues drift toward neutral). For a bigger transformation,
+set **`style`** (e.g. `"(covered in green moss:1.3), damp"`) and/or raise `denoise` to 0.55-0.7.
 
 **Prompt / steering**
 
 | param | type | default | notes |
 |---|---|---|---|
-| style | string | "" | **the transformation** — appended to the prompt; ComfyUI `(phrase:weight)` honoured. This is what makes the output different. |
+| quality_suffix | string | realism + neutral-colour grade | always appended; the default subtle-realism/colour steering lives here |
+| style | string | "" | optional extra transformation appended to the prompt; ComfyUI `(phrase:weight)` honoured. Leave empty for the default subtle restyle. |
 | auto_caption | bool | true | caption the input so the prompt describes what it IS, then append `style` + `quality_suffix`. Turn off to use `prompt` verbatim. |
 | caption_task | string | more_detailed_caption | or `prompt_gen_mixed_caption` (PromptGen: tags+desc) |
-| prompt | string | photoreal default | base/content prompt used only when `auto_caption=false` |
-| quality_suffix | string | tiling/PBR tags | appended last |
-| negative_prompt | string | shadow/perspective-aware default | |
+| prompt | string | realism/neutral default | base/content prompt used only when `auto_caption=false` |
+| negative_prompt | string | anti-saturation + shadow/perspective default | pushes away from oversaturation / blue cast / stylisation |
 
 **Diffusion**
 
 | param | type | default | notes |
 |---|---|---|---|
 | method | enum | img2img | `img2img` or `unsample` (invert→resample; tighter layout lock, bigger look change) |
-| denoise | float 0–1 | 0.6 | 0.55–0.70 = restyle band; <0.45 only refines (img2img only) |
+| denoise | float 0–1 | 0.45 | ~0.45 = subtle realism/colour grade (stays close to source); 0.55–0.70 = stronger restyle (img2img only) |
 | steps / cfg | int / float | 28 / 6.5 | |
 | sampler_name / scheduler | string | dpmpp_2m / karras | must be in `/capabilities` |
 | seed | int | -1 | -1 = random |
@@ -148,9 +149,10 @@ Two backends. **chord** (default): labels `basecolor`, `normal`, `roughness`, `m
 BASE=http://localhost:8080
 B64=$(base64 -w0 my_texture.png)
 
-# `style` is what makes the output DIFFERENT from the input (the rest is auto-captioned).
+# Defaults give a subtle realism + neutral-colour restyle (stays close to the input).
+# Add "style" and/or raise "denoise" for a bigger change.
 JOB=$(curl -s $BASE/restyle -H 'Content-Type: application/json' \
-  -d "{\"image_base64\":\"$B64\",\"style\":\"(covered in green moss:1.3), damp weathered stone\",\"denoise\":0.6,\"tiling\":\"enable\",\"upscale\":true}" \
+  -d "{\"image_base64\":\"$B64\",\"tiling\":\"enable\",\"upscale\":true}" \
   | jq -r .job_id)
 
 # poll until done

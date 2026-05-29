@@ -44,17 +44,21 @@ class ImageRef(BaseModel):
 class RestyleParams(ImageRef):
     # --- prompt / steering ------------------------------------------------- #
     prompt: str = Field(
-        "photorealistic surface, sharp fine detail, physically based, high detail",
+        "photorealistic real-world surface, physically based material, natural neutral colors, "
+        "sharp fine detail",
         description="Base/fallback positive prompt. When auto_caption is on this is unused "
                     "(the caption replaces it); when off it is the content portion of the prompt.")
     style: str = Field(
         "",
-        description="Transformation modifier appended to the prompt, e.g. "
-                    "'(covered in thick green moss:1.3), damp'. This is what makes the output "
-                    "DIFFERENT from the source. ComfyUI weight syntax (phrase:weight) is honoured.")
+        description="Optional extra transformation appended to the prompt, e.g. "
+                    "'(covered in thick green moss:1.3), damp'. Leave empty for the default subtle "
+                    "realism/colour-grade restyle. ComfyUI weight syntax (phrase:weight) is honoured.")
     quality_suffix: str = Field(
-        "diffuse even lighting, orthographic, seamless texture, PBR albedo, highly detailed, 8k",
-        description="Quality/tiling tags appended last.")
+        "(realistic natural color palette:1.2), (muted neutral tones:1.1), desaturated true-to-life "
+        "colors, photorealistic, physically based material, fine surface detail, diffuse even lighting, "
+        "seamless texture, high detail",
+        description="Always-appended steering. Default pushes a SUBTLE realism + neutral colour grade "
+                    "(e.g. strong blues drift toward muted/neutral), not a dramatic restyle.")
     auto_caption: bool = Field(
         True,
         description="Caption the input (Florence-2 PromptGen) so the prompt describes what the "
@@ -65,15 +69,18 @@ class RestyleParams(ImageRef):
         description="Florence2Run task. 'more_detailed_caption' (universal) or "
                     "'prompt_gen_mixed_caption' (PromptGen models: tags+description).")
     negative_prompt: str = (
+        "oversaturated, overly saturated, vibrant saturated colors, neon, strong color cast, "
+        "heavy blue tint, color tint, stylized, fantasy colors, painted illustration, cartoon, "
         "perspective, shadows, depth of field, vignette, 3d render, tilted, border, frame, "
-        "cartoon, blurry, low detail, worst quality, lowres, jpeg artifacts, watermark, signature, "
+        "blurry, low detail, worst quality, lowres, jpeg artifacts, watermark, signature, "
         "text, visible seam")
 
     # --- diffusion --------------------------------------------------------- #
     method: RestyleMethod = Field(RestyleMethod.img2img, description="img2img or unsample.")
-    denoise: float = Field(0.6, ge=0.0, le=1.0,
+    denoise: float = Field(0.45, ge=0.0, le=1.0,
                            description="Lower = closer to source; higher = more new detail. "
-                                       "0.55-0.70 is the restyle band; <0.45 just refines.")
+                                       "~0.45 = subtle realism/colour-grade (stays close to source); "
+                                       "0.55-0.70 = stronger restyle.")
     steps: int = Field(28, ge=1, le=150)
     cfg: float = Field(6.5, ge=1.0, le=30.0)
     sampler_name: str = "dpmpp_2m"

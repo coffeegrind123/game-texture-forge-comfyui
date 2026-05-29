@@ -98,9 +98,14 @@ restyle a *detail-preserving upscaler* — it just rebuilt the input. The fix, n
   `TextureForgePromptCompose` joins `caption + style + quality_suffix` into the positive prompt.
   The caller's **`style`** (e.g. `"(covered in moss:1.3)"`) is what diverges the output. A prompt
   with no material/target gives img2img nothing to move toward, so it reconstructs the source.
-- **denoise 0.6** (restyle band 0.55–0.70), **controlnet_strength 0.4**, and
-  **`controlnet_end_percent 0.5`** (release the control mid-sampling so the back half repaints).
-  These three together were the whole "same texture" bug.
+- **denoise 0.45** (default = subtle realism/colour-grade that stays close to source; raise to
+  0.55–0.70 for a stronger restyle), **controlnet_strength 0.4**, and **`controlnet_end_percent 0.5`**
+  (release the control mid-sampling so the back half can repaint / regrade colour).
+- **Default steering is subtle realism + neutral colour:** `quality_suffix` pushes
+  `(realistic natural color palette:1.2), (muted neutral tones:1.1), photorealistic, PBR` and the
+  negative pushes away from oversaturation / blue cast / stylisation — so strong colours drift
+  toward neutral and materials read more realistic, without changing the texture's identity. Bumping
+  denoise/controlnet too far back toward 0.45/full-range is what caused the original "same texture" bug.
 - **control_type** chooses the structural signal: `tile` preserves colour too (least change);
   `depth`/`canny`/`lineart`/`scribble` lock geometry only (more restyle). Use the xinsir Union
   model + `controlnet_union=true` to switch types without a new download.
